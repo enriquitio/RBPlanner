@@ -1,15 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Azure Maps Route Viewer</title>
+    <title>Route Viewer with Low Bridges</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
     <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.js"></script>
     <link rel="stylesheet" href="https://atlas.microsoft.com/sdk/javascript/mapcontrol/2/atlas.min.css" type="text/css" />
     <style>
-        html, body, #myMap {
+        html, body {
             margin: 0;
             padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        #myMap {
             height: 100%;
             width: 100%;
         }
@@ -19,50 +23,80 @@
     <div id="myMap"></div>
 
     <script>
+        // 1. Azure Maps subscription key
         const subscriptionKey = '9FLh3kPCfweiSL1PanMH8ytd5EJz57Trvp9Efn0TNDl0wur3WPR1JQQJ99BGACYeBjFyD5jZAAAgAZMP3SKW';
 
-        function getParams() {
-            const urlParams = new URLSearchParams(window.location.search);
-            return {
-                startLat: parseFloat(urlParams.get("startLat")),
-                startLon: parseFloat(urlParams.get("startLon")),
-                endLat: parseFloat(urlParams.get("endLat")),
-                endLon: parseFloat(urlParams.get("endLon"))
-            };
+        // 2. Parse URL parameters
+        function getParam(name) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(name);
         }
 
-        const { startLat, startLon, endLat, endLon } = getParams();
+        const startLat = parseFloat(getParam('startLat'));
+        const startLon = parseFloat(getParam('startLon'));
+        const endLat = parseFloat(getParam('endLat'));
+        const endLon = parseFloat(getParam('endLon'));
 
+        // Parse bridges JSON string
+        const bridgesRaw = getParam('bridges');
+        let bridges = [];
+
+        try {
+            if (bridgesRaw) {
+                bridges = JSON.parse(decodeURIComponent(bridgesRaw));
+            }
+        } catch (e) {
+            console.error('Failed to parse bridges:', e);
+        }
+
+        // 3. Initialize map
         const map = new atlas.Map('myMap', {
             center: [startLon, startLat],
             zoom: 10,
             authOptions: {
                 authType: 'subscriptionKey',
-                subscriptionKey
+                subscriptionKey: subscriptionKey
             }
         });
 
+        // 4. When map is ready
         map.events.add('ready', () => {
             const datasource = new atlas.source.DataSource();
             map.sources.add(datasource);
 
-            // Add pins
+            // Add origin & destination pins
             const pins = [
                 { name: "Start", coords: [startLon, startLat] },
                 { name: "End", coords: [endLon, endLat] }
             ];
+
             pins.forEach(pin => {
                 datasource.add(new atlas.data.Feature(new atlas.data.Point(pin.coords), {
                     title: pin.name
                 }));
             });
 
+            // Add bridge pins
+            bridges.forEach(bridge => {
+                datasource.add(new atlas.data.Feature(new atlas.data.Point(bridge.coords), {
+                    title: bridge.name
+                }));
+            });
+
+            // Show pins
             map.layers.add(new atlas.layer.SymbolLayer(datasource, null, {
-                iconOptions: { image: 'pin-round-blue', allowOverlap: true },
-                textOptions: { textField: ['get', 'title'], offset: [0, 1.2], color: 'black' }
+                iconOptions: {
+                    image: 'pin-round-red',
+                    allowOverlap: true
+                },
+                textOptions: {
+                    textField: ['get', 'title'],
+                    offset: [0, 1.2],
+                    color: 'black'
+                }
             }));
 
-            // Request directions
+            // 5. Fetch and draw route
             const routeUrl = `https://atlas.microsoft.com/route/directions/json?api-version=1.0&subscription-key=${subscriptionKey}&query=${startLat},${startLon}:${endLat},${endLon}&travelMode=car`;
 
             fetch(routeUrl)
@@ -71,12 +105,15 @@
                     const routeCoords = data.routes[0].legs.flatMap(leg =>
                         leg.points.map(p => [p.longitude, p.latitude])
                     );
+
                     datasource.add(new atlas.data.Feature(new atlas.data.LineString(routeCoords)));
+
                     map.layers.add(new atlas.layer.LineLayer(datasource, null, {
                         strokeColor: 'blue',
                         strokeWidth: 4
                     }));
-                });
+                })
+                .catch(err => console.error('Route fetch error:', err));
         });
     </script>
 </body>
